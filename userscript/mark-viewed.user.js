@@ -66,14 +66,27 @@
     const resp = await fetch(url, { credentials: 'same-origin' });
     if (!resp.ok) throw new Error(`fetch PR page: HTTP ${resp.status}`);
     const html = await resp.text();
-    const m = html.match(/<!--\s*pr-triage-safe:\s*(\[[\s\S]*?\])\s*-->/);
-    if (!m) return null;
-    try {
-      const list = JSON.parse(m[1]);
-      return Array.isArray(list) ? list : null;
-    } catch (e) {
-      return null;
+    // Primary: scrape the rendered <details> list from the triage comment
+    // (GitHub's markdown sanitizer keeps <details>/<li>/<code> in the DOM).
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    for (const details of doc.querySelectorAll('details')) {
+      const summary = details.querySelector('summary');
+      if (summary && /pre-cleared files/.test(summary.textContent)) {
+        const paths = [...details.querySelectorAll('li code')]
+          .map(code => code.textContent.trim())
+          .filter(Boolean);
+        if (paths.length) return paths;
+      }
     }
+    // Fallback: hidden HTML comment marker (present in some embeds)
+    const m = html.match(/<!--\s*pr-triage-safe:\s*(\[[\s\S]*?\])\s*-->/);
+    if (m) {
+      try {
+        const list = JSON.parse(m[1]);
+        if (Array.isArray(list) && list.length) return list;
+      } catch (e) { /* ignore */ }
+    }
+    return null;
   }
 
   function fileEntries() {

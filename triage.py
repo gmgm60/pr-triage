@@ -608,8 +608,8 @@ def md_report(results, owner, repo, number, head_sha, gate):
         lines.append("ℹ️ " + " · ".join(f"**{c}**: {n}" for c, n in extras))
         lines.append("")
 
-    lines.append(f"<details><summary>✅ {markable} pre-cleared files — safe to mark "
-                 f"as Viewed (use the PR Triage userscript for one click)</summary>")
+    lines.append(f"<details><summary>✅ {markable} pre-cleared files — safe to "
+                 f"mark as Viewed (userscript reads this list)</summary>")
     lines.append("")
     lines.append("\n".join(f"- `{p}`" for p in safe_paths))
     lines.append("")
