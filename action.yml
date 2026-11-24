@@ -1,0 +1,44 @@
+name: 'PR Triage'
+description: >-
+  Classify PR files as formatting-only vs real changes, run a test gate and
+  line-level coverage, and post/refresh a markdown triage report comment on
+  the PR. Ships with a userscript for one-click "mark pre-cleared as viewed".
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  pr:
+    description: 'PR number (defaults to the PR that triggered the workflow)'
+    required: false
+    default: ''
+  full:
+    description: "Run the test gate + coverage ('true' by default)"
+    required: false
+    default: 'true'
+
+outputs:
+  verdict:
+    description: "'ok' or 'test-violation'"
+    value: ${{ steps.triage.outputs.verdict }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: triage
+      shell: bash
+      run: |
+        cd "$GITHUB_WORKSPACE"
+        python3 "${{ github.action_path }}/triage.py"
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+          echo "verdict=ok" >> "$GITHUB_OUTPUT"
+        else
+          echo "verdict=test-violation" >> "$GITHUB_OUTPUT"
+        fi
+        exit "$rc"
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_TRIAGE_PR: ${{ inputs.pr }}
+        PR_TRIAGE_FULL: ${{ inputs.full }}
