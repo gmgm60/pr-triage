@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         PR Triage: Mark pre-cleared files as viewed
 // @namespace    https://github.com/gmgm60/pr-triage
-// @version      1.0.0
+// @version      1.0.1
 // @description  One-click "mark the PR Triage bot's pre-cleared files as Viewed" on GitHub PR Files changed pages
 // @author       gmgm60
 // @license      MIT
 // @match        https://github.com/*/pull/*/files*
+// @match        https://github.com/*/pull/*/changes*
 // @match        https://github.com/*/pull/*/commits/*
 // @run-at       document-idle
 // @grant        none
@@ -89,6 +90,18 @@
     return null;
   }
 
+  function pathFromBlobLink(container) {
+    // Works on both the classic and React file views: the file header links to
+    // the blob — /owner/repo/blob/<sha>/<path...>
+    for (const a of container.querySelectorAll('a[href*="/blob/"]')) {
+      const m = a.getAttribute('href').match(/^\/[^/]+\/[^/]+\/blob\/[^/]+\/(.+)$/);
+      if (m) {
+        try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+      }
+    }
+    return null;
+  }
+
   function fileEntries() {
     const entries = [];
     for (const container of document.querySelectorAll(FILE_CONTAINER)) {
@@ -104,6 +117,7 @@
         const tagged = container.querySelector('[data-tagsearch-path]');
         if (tagged) path = tagged.getAttribute('data-tagsearch-path');
       }
+      if (!path) path = pathFromBlobLink(container);
       entries.push({ container, toggle, path });
     }
     return entries;
@@ -213,9 +227,10 @@
   }
 
   init();
-  // Also re-init when the SPA mutates into the files view
+  // Also re-init when the SPA mutates into the files/changes view
   new MutationObserver(() => {
-    if (location.pathname.includes('/files') &&
+    if ((location.pathname.includes('/files') ||
+         location.pathname.includes('/changes')) &&
         !document.getElementById('pr-triage-mark-btn')) {
       init();
     }
