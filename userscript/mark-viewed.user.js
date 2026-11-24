@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PR Triage: Mark pre-cleared files as viewed
 // @namespace    https://github.com/gmgm60/pr-triage
-// @version      1.0.1
+// @version      1.0.2
 // @description  One-click "mark the PR Triage bot's pre-cleared files as Viewed" on GitHub PR Files changed pages
 // @author       gmgm60
 // @license      MIT
@@ -102,6 +102,42 @@
     return null;
   }
 
+  function anchorOf(container) {
+    // GitHub identifies each file by the anchor #diff-<sha256(path)> — on the
+    // React view the header links to it, on the classic view the header
+    // carries data-anchor. Verified: sha256(path) === the anchor hash.
+    const header = container.querySelector(
+      'div[class*="diff-file-header"], .file-header');
+    if (header) {
+      const a = header.querySelector('a[href^="#diff-"]');
+      if (a) return a.getAttribute('href').slice(1);
+      const da = header.getAttribute('data-anchor');
+      if (da && da.startsWith('diff-')) return da;
+    }
+    const a = container.querySelector('a[href^="#diff-"]');
+    if (a) return a.getAttribute('href').slice(1);
+    const da = container.getAttribute && container.getAttribute('data-anchor');
+    if (da && da.startsWith('diff-')) return da;
+    if (container.id && container.id.startsWith('diff-')) return container.id;
+    return null;
+  }
+
+  async function sha256Hex(text) {
+    const buf = await crypto.subtle.digest(
+      'SHA-256', new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)]
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function buildAnchorMap(paths) {
+    // Map: 'diff-<sha256(path)>' -> path
+    const map = new Map();
+    await Promise.all(paths.map(async p => {
+      map.set('diff-' + await sha256Hex(p), p);
+    }));
+    return map;
+  }
+
   function fileEntries() {
     const entries = [];
     for (const container of document.querySelectorAll(FILE_CONTAINER)) {
@@ -118,7 +154,7 @@
         if (tagged) path = tagged.getAttribute('data-tagsearch-path');
       }
       if (!path) path = pathFromBlobLink(container);
-      entries.push({ container, toggle, path });
+      entries.push({ container, toggle, path, anchor: anchorOf(container) });
     }
     return entries;
   }
@@ -140,18 +176,27 @@
     return changed;
   }
 
-  function markPaths(entries, paths) {
-    const want = new Set(paths);
-    let changed = 0, already = 0, missing = [];
+  function markEntries(entries, safePaths, anchorMap) {
+    // Match by diff anchor (GitHub's own #diff-<sha256(path)> id) first —
+    // works on both classic and React views, immune to rename rendering —
+    // with plain path matching as fallback.
+    const wantPaths = new Set(safePaths);
+    const matched = new Set();
+    let changed = 0, already = 0;
     for (const entry of entries) {
-      if (!entry.path) continue;
-      if (!want.has(entry.path)) continue;
+      let path = null;
+      if (entry.anchor && anchorMap.has(entry.anchor)) {
+        path = anchorMap.get(entry.anchor);
+      } else if (entry.path && wantPaths.has(entry.path)) {
+        path = entry.path;
+      }
+      if (!path) continue;
+      matched.add(path);
       if (isViewed(entry)) { already++; continue; }
       entry.toggle.click();
       changed++;
-      want.delete(entry.path);
     }
-    for (const p of want) missing.push(p); // safe paths not rendered on this page
+    const missing = safePaths.filter(p => !matched.has(p));
     return { changed, already, missing };
   }
 
@@ -194,7 +239,8 @@
         }
         return;
       }
-      const { changed, already, missing } = markPaths(entries, safe);
+      const anchorMap = await buildAnchorMap(safe);
+      const { changed, already, missing } = markEntries(entries, safe, anchorMap);
       let msg = `Marked ${changed} pre-cleared file(s) as viewed` +
                 (already ? ` · ${already} already viewed` : '');
       if (missing.length) {
